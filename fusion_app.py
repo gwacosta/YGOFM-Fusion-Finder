@@ -15,6 +15,7 @@ class YugiohFusionApp:
         self.card_fusions = {}  # {card_name: [(card2, result, atk, def), ...]}
         self.general_fusions = []  # [(type1, type2, result, atk, def), ...]
         self.card_stats = {}  # {card_name: (atk, def)}
+        self.fusion_results = {}  # {result_name: [(card1, card2, ...), ...]} - mapa reverso
         
         # Tipos válidos de monstros do Yu-Gi-Oh
         self.valid_monster_types = [
@@ -51,6 +52,9 @@ class YugiohFusionApp:
             
             # Extrair fusões específicas de cartas
             self.extract_card_fusions(content)
+            
+            # Criar mapa reverso de resultados
+            self.build_fusion_results_map()
             
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao carregar fusions.txt: {str(e)}")
@@ -152,6 +156,46 @@ class YugiohFusionApp:
             'Female': 'Fairy',
         }
         return type_map.get(type_name, type_name if type_name in self.valid_monster_types else None)
+    
+    def build_fusion_results_map(self):
+        """Constrói um mapa reverso: resultado -> combinações que o geram"""
+        # Adicionar fusões específicas de cartas
+        for card1, fusions in self.card_fusions.items():
+            for fusion in fusions:
+                result = fusion['result']
+                if result not in self.fusion_results:
+                    self.fusion_results[result] = []
+                
+                # Obter stats da carta1
+                stats1 = self.card_stats.get(card1, ('?', '?'))
+                
+                self.fusion_results[result].append({
+                    'type': 'specific',
+                    'card1': card1,
+                    'card1_atk': stats1[0],
+                    'card1_def': stats1[1],
+                    'card2': fusion['card2'],
+                    'card2_atk': fusion['card2_atk'],
+                    'card2_def': fusion['card2_def'],
+                    'result_atk': fusion['result_atk'],
+                    'result_def': fusion['result_def']
+                })
+        
+        # Adicionar fusões gerais
+        for fusion in self.general_fusions:
+            result = fusion['result']
+            if result not in self.fusion_results:
+                self.fusion_results[result] = []
+            
+            self.fusion_results[result].append({
+                'type': 'general',
+                'type1': fusion['type1'],
+                'type2': fusion['type2'],
+                'req1': fusion.get('req1', ''),
+                'req2': fusion.get('req2', ''),
+                'result_atk': fusion['atk'],
+                'result_def': fusion['def']
+            })
     
     def extract_card_fusions(self, content):
         """Extrai fusões específicas de cartas individuais"""
@@ -299,16 +343,13 @@ class YugiohFusionApp:
         """Busca fusões de uma carta específica"""
         found = False
         
-        # Buscar correspondências exatas ou parciais
+        # Buscar correspondências exatas ou parciais nas cartas que podem fusionar
         matches = []
         for card in self.card_fusions.keys():
             if card_name.lower() in card.lower():
                 matches.append(card)
         
-        if not matches:
-            self.results_text.insert(tk.END, f"Carta '{card_name}' não encontrada.\n")
-            return False
-        
+        # Exibir fusões que a carta pode fazer
         for card in matches:
             found = True
             stats = self.card_stats.get(card, ("?", "?"))
@@ -318,7 +359,7 @@ class YugiohFusionApp:
             self.results_text.insert(tk.END, f"═══════════════════════════════════════════\n\n", "title")
             
             fusions = self.card_fusions[card]
-            self.results_text.insert(tk.END, f"Fusões Específicas: {len(fusions)}\n\n", "subtitle")
+            self.results_text.insert(tk.END, f"Fusões que {card} pode fazer: {len(fusions)}\n\n", "subtitle")
             
             for i, fusion in enumerate(fusions, 1):
                 self.results_text.insert(tk.END, f"{i}. ", "header")
@@ -337,6 +378,62 @@ class YugiohFusionApp:
                     "result")
             
             self.results_text.insert(tk.END, "\n")
+        
+        # Buscar se a carta é um resultado de fusão
+        result_matches = []
+        for result_name in self.fusion_results.keys():
+            if card_name.lower() in result_name.lower():
+                result_matches.append(result_name)
+        
+        # Exibir combinações que geram esta carta como resultado
+        for result in result_matches:
+            if found:
+                self.results_text.insert(tk.END, "\n")
+            
+            found = True
+            combinations = self.fusion_results[result]
+            
+            self.results_text.insert(tk.END, f"═══════════════════════════════════════════\n", "title")
+            self.results_text.insert(tk.END, f"Combinações que geram: {result}\n", "title")
+            self.results_text.insert(tk.END, f"═══════════════════════════════════════════\n\n", "title")
+            
+            self.results_text.insert(tk.END, f"Total: {len(combinations)} combinações\n\n", "subtitle")
+            
+            for i, combo in enumerate(combinations, 1):
+                self.results_text.insert(tk.END, f"{i}. ", "header")
+                
+                if combo['type'] == 'specific':
+                    # Fusão específica
+                    self.results_text.insert(tk.END, 
+                        f"{combo['card1']} ({combo['card1_atk']}/{combo['card1_def']})")
+                    self.results_text.insert(tk.END, " + ")
+                    
+                    if combo['card2_atk'] != '?':
+                        self.results_text.insert(tk.END, 
+                            f"{combo['card2']} ({combo['card2_atk']}/{combo['card2_def']})")
+                    else:
+                        self.results_text.insert(tk.END, f"{combo['card2']}")
+                else:
+                    # Fusão geral
+                    self.results_text.insert(tk.END, f"[{combo['type1']}]")
+                    if combo.get('req1'):
+                        self.results_text.insert(tk.END, f" {combo['req1']}", "header")
+                    
+                    self.results_text.insert(tk.END, " + ")
+                    
+                    self.results_text.insert(tk.END, f"[{combo['type2']}]")
+                    if combo.get('req2'):
+                        self.results_text.insert(tk.END, f" {combo['req2']}", "header")
+                
+                self.results_text.insert(tk.END, " = ")
+                self.results_text.insert(tk.END, 
+                    f"{result} ({combo['result_atk']}/{combo['result_def']})\n", 
+                    "result")
+            
+            self.results_text.insert(tk.END, "\n")
+        
+        if not found:
+            self.results_text.insert(tk.END, f"Carta '{card_name}' não encontrada.\n")
         
         return found
     
