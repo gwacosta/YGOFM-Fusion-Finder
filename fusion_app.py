@@ -181,21 +181,33 @@ class YugiohFusionApp:
                     'result_def': fusion['result_def']
                 })
         
-        # Adicionar fusões gerais
+        # Adicionar fusões gerais (evitando duplicatas)
+        added_general = {}  # Rastrear fusões gerais já adicionadas por resultado
+        
         for fusion in self.general_fusions:
             result = fusion['result']
             if result not in self.fusion_results:
                 self.fusion_results[result] = []
             
-            self.fusion_results[result].append({
-                'type': 'general',
-                'type1': fusion['type1'],
-                'type2': fusion['type2'],
-                'req1': fusion.get('req1', ''),
-                'req2': fusion.get('req2', ''),
-                'result_atk': fusion['atk'],
-                'result_def': fusion['def']
-            })
+            if result not in added_general:
+                added_general[result] = set()
+            
+            # Criar chave normalizada para detectar duplicatas
+            types = sorted([fusion['type1'], fusion['type2']])
+            reqs = sorted([fusion.get('req1',''), fusion.get('req2','')])
+            fusion_key = f"{types[0]}|{types[1]}|{reqs[0]}|{reqs[1]}"
+            
+            if fusion_key not in added_general[result]:
+                added_general[result].add(fusion_key)
+                self.fusion_results[result].append({
+                    'type': 'general',
+                    'type1': fusion['type1'],
+                    'type2': fusion['type2'],
+                    'req1': fusion.get('req1', ''),
+                    'req2': fusion.get('req2', ''),
+                    'result_atk': fusion['atk'],
+                    'result_def': fusion['def']
+                })
     
     def extract_card_fusions(self, content):
         """Extrai fusões específicas de cartas individuais"""
@@ -342,6 +354,7 @@ class YugiohFusionApp:
     def search_by_card_name(self, card_name):
         """Busca fusões de uma carta específica"""
         found = False
+        displayed_fusions = set()  # Rastrear fusões já exibidas
         
         # Buscar correspondências exatas ou parciais nas cartas que podem fusionar
         matches = []
@@ -359,25 +372,35 @@ class YugiohFusionApp:
             self.results_text.insert(tk.END, f"═══════════════════════════════════════════\n\n", "title")
             
             fusions = self.card_fusions[card]
-            self.results_text.insert(tk.END, f"Fusões que {card} pode fazer: {len(fusions)}\n\n", "subtitle")
+            unique_fusions = []
             
-            for i, fusion in enumerate(fusions, 1):
-                self.results_text.insert(tk.END, f"{i}. ", "header")
-                self.results_text.insert(tk.END, f"{card} ({stats[0]}/{stats[1]})")
-                self.results_text.insert(tk.END, " + ")
+            # Filtrar fusões duplicadas
+            for fusion in fusions:
+                fusion_key = f"{card}|{fusion['card2']}|{fusion['result']}"
+                if fusion_key not in displayed_fusions:
+                    displayed_fusions.add(fusion_key)
+                    unique_fusions.append(fusion)
+            
+            if unique_fusions:
+                self.results_text.insert(tk.END, f"Fusões que {card} pode fazer: {len(unique_fusions)}\n\n", "subtitle")
                 
-                if fusion['card2_atk'] != '?':
+                for i, fusion in enumerate(unique_fusions, 1):
+                    self.results_text.insert(tk.END, f"{i}. ", "header")
+                    self.results_text.insert(tk.END, f"{card} ({stats[0]}/{stats[1]})")
+                    self.results_text.insert(tk.END, " + ")
+                    
+                    if fusion['card2_atk'] != '?':
+                        self.results_text.insert(tk.END, 
+                            f"{fusion['card2']} ({fusion['card2_atk']}/{fusion['card2_def']})")
+                    else:
+                        self.results_text.insert(tk.END, f"{fusion['card2']}")
+                    
+                    self.results_text.insert(tk.END, " = ")
                     self.results_text.insert(tk.END, 
-                        f"{fusion['card2']} ({fusion['card2_atk']}/{fusion['card2_def']})")
-                else:
-                    self.results_text.insert(tk.END, f"{fusion['card2']}")
+                        f"{fusion['result']} ({fusion['result_atk']}/{fusion['result_def']})\n", 
+                        "result")
                 
-                self.results_text.insert(tk.END, " = ")
-                self.results_text.insert(tk.END, 
-                    f"{fusion['result']} ({fusion['result_atk']}/{fusion['result_def']})\n", 
-                    "result")
-            
-            self.results_text.insert(tk.END, "\n")
+                self.results_text.insert(tk.END, "\n")
         
         # Buscar se a carta é um resultado de fusão
         result_matches = []
@@ -392,45 +415,63 @@ class YugiohFusionApp:
             
             found = True
             combinations = self.fusion_results[result]
+            unique_combinations = []
             
-            self.results_text.insert(tk.END, f"═══════════════════════════════════════════\n", "title")
-            self.results_text.insert(tk.END, f"Combinações que geram: {result}\n", "title")
-            self.results_text.insert(tk.END, f"═══════════════════════════════════════════\n\n", "title")
-            
-            self.results_text.insert(tk.END, f"Total: {len(combinations)} combinações\n\n", "subtitle")
-            
-            for i, combo in enumerate(combinations, 1):
-                self.results_text.insert(tk.END, f"{i}. ", "header")
-                
+            # Filtrar combinações duplicadas
+            for combo in combinations:
                 if combo['type'] == 'specific':
-                    # Fusão específica
-                    self.results_text.insert(tk.END, 
-                        f"{combo['card1']} ({combo['card1_atk']}/{combo['card1_def']})")
-                    self.results_text.insert(tk.END, " + ")
-                    
-                    if combo['card2_atk'] != '?':
-                        self.results_text.insert(tk.END, 
-                            f"{combo['card2']} ({combo['card2_atk']}/{combo['card2_def']})")
-                    else:
-                        self.results_text.insert(tk.END, f"{combo['card2']}")
+                    # Para fusões específicas, normalizar ordem das cartas
+                    cards = sorted([combo['card1'], combo['card2']])
+                    combo_key = f"{cards[0]}|{cards[1]}|{result}"
                 else:
-                    # Fusão geral
-                    self.results_text.insert(tk.END, f"[{combo['type1']}]")
-                    if combo.get('req1'):
-                        self.results_text.insert(tk.END, f" {combo['req1']}", "header")
-                    
-                    self.results_text.insert(tk.END, " + ")
-                    
-                    self.results_text.insert(tk.END, f"[{combo['type2']}]")
-                    if combo.get('req2'):
-                        self.results_text.insert(tk.END, f" {combo['req2']}", "header")
+                    # Para fusões gerais, normalizar ordem dos tipos
+                    types = sorted([combo['type1'], combo['type2']])
+                    reqs = sorted([combo.get('req1',''), combo.get('req2','')])
+                    combo_key = f"{types[0]}|{types[1]}|{reqs[0]}|{reqs[1]}|{result}"
                 
-                self.results_text.insert(tk.END, " = ")
-                self.results_text.insert(tk.END, 
-                    f"{result} ({combo['result_atk']}/{combo['result_def']})\n", 
-                    "result")
+                if combo_key not in displayed_fusions:
+                    displayed_fusions.add(combo_key)
+                    unique_combinations.append(combo)
             
-            self.results_text.insert(tk.END, "\n")
+            if unique_combinations:
+                self.results_text.insert(tk.END, f"═══════════════════════════════════════════\n", "title")
+                self.results_text.insert(tk.END, f"Combinações que geram: {result}\n", "title")
+                self.results_text.insert(tk.END, f"═══════════════════════════════════════════\n\n", "title")
+                
+                self.results_text.insert(tk.END, f"Total: {len(unique_combinations)} combinações\n\n", "subtitle")
+                
+                for i, combo in enumerate(unique_combinations, 1):
+                    self.results_text.insert(tk.END, f"{i}. ", "header")
+                    
+                    if combo['type'] == 'specific':
+                        # Fusão específica
+                        self.results_text.insert(tk.END, 
+                            f"{combo['card1']} ({combo['card1_atk']}/{combo['card1_def']})")
+                        self.results_text.insert(tk.END, " + ")
+                        
+                        if combo['card2_atk'] != '?':
+                            self.results_text.insert(tk.END, 
+                                f"{combo['card2']} ({combo['card2_atk']}/{combo['card2_def']})")
+                        else:
+                            self.results_text.insert(tk.END, f"{combo['card2']}")
+                    else:
+                        # Fusão geral
+                        self.results_text.insert(tk.END, f"[{combo['type1']}]")
+                        if combo.get('req1'):
+                            self.results_text.insert(tk.END, f" {combo['req1']}", "header")
+                        
+                        self.results_text.insert(tk.END, " + ")
+                        
+                        self.results_text.insert(tk.END, f"[{combo['type2']}]")
+                        if combo.get('req2'):
+                            self.results_text.insert(tk.END, f" {combo['req2']}", "header")
+                    
+                    self.results_text.insert(tk.END, " = ")
+                    self.results_text.insert(tk.END, 
+                        f"{result} ({combo['result_atk']}/{combo['result_def']})\n", 
+                        "result")
+                
+                self.results_text.insert(tk.END, "\n")
         
         if not found:
             self.results_text.insert(tk.END, f"Carta '{card_name}' não encontrada.\n")
@@ -447,9 +488,18 @@ class YugiohFusionApp:
         
         # Buscar fusões onde o tipo aparece
         matching_fusions = []
+        displayed_fusions = set()  # Rastrear fusões já exibidas
+        
         for fusion in self.general_fusions:
             if fusion['type1'] == card_type or fusion['type2'] == card_type:
-                matching_fusions.append(fusion)
+                # Criar chave única para detectar duplicatas (normalizando a ordem)
+                types = sorted([fusion['type1'], fusion['type2']])
+                reqs = sorted([fusion.get('req1',''), fusion.get('req2','')])
+                fusion_key = f"{types[0]}|{types[1]}|{reqs[0]}|{reqs[1]}|{fusion['result']}"
+                
+                if fusion_key not in displayed_fusions:
+                    displayed_fusions.add(fusion_key)
+                    matching_fusions.append(fusion)
         
         if matching_fusions:
             found = True
